@@ -17,15 +17,19 @@ import (
 
 func main() {
 	// Load environment variables
+	// Try loading from current directory first
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found")
+		// Try loading from project root
+		if err := godotenv.Load("../../.env"); err != nil {
+			log.Println("Warning: .env file not found in current directory or project root")
+		}
 	}
 
 	// Initialize configuration
-	cfg := config.New()
+	cfg := config.LoadConfig()
 
 	// Setup database connection
-	db, err := database.Connect(cfg.DatabaseURL)
+	db, err := database.InitDB(cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

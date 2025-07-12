@@ -61,16 +61,16 @@ func NewPaymentJobHandlers(
 
 	// Handler for processing international payments
 	handlers[JobTypeProcessPayment] = func(ctx context.Context, job Job) (interface{}, error) {
-		var payload ProcessPaymentPayload
-		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		var payloadData ProcessPaymentPayload
+		if err := json.Unmarshal(job.Payload, &payloadData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal process payment payload: %w", err)
 		}
 
-		log.Printf("Processing international payment job for payment ID: %s", payload.PaymentID)
+		log.Printf("Processing international payment job for payment ID: %s", payloadData.PaymentID)
 
 		// Get payment from database
 		var payment database.InternationalPayment
-		if err := db.First(&payment, "id = ?", payload.PaymentID).Error; err != nil {
+		if err := db.First(&payment, "id = ?", payloadData.PaymentID).Error; err != nil {
 			return nil, fmt.Errorf("failed to get payment: %w", err)
 		}
 
@@ -84,11 +84,11 @@ func NewPaymentJobHandlers(
 
 		// 1. Perform compliance check
 		compliant, checks, err := complianceService.ValidateTransaction(
-			payload.UserID,
-			payload.Amount,
+			payloadData.UserID,
+			payloadData.Amount,
 			"international_payment",
-			payload.VendorName,
-			payload.RecipientAddress,
+			payloadData.VendorName,
+			payloadData.RecipientAddress,
 		)
 		if err != nil {
 			return handlePaymentError(db, payment.ID, "compliance_error", err.Error())
@@ -107,13 +107,13 @@ func NewPaymentJobHandlers(
 		// 2. Create bank transaction record
 		bankTx := database.GhanaBankTransaction{
 			ID:            uuid.New(),
-			UserID:        payload.UserID,
-			BankAccountID: payload.BankAccountID,
+			UserID:        payloadData.UserID,
+			BankAccountID: payloadData.BankAccountID,
 			Type:          "debit",
-			Amount:        payload.Amount,
-			Currency:      payload.Currency,
-			Description:   payload.Description,
-			Reference:     payload.Reference,
+			Amount:        payloadData.Amount,
+			Currency:      payloadData.Currency,
+			Description:   payloadData.Description,
+			Reference:     payloadData.Reference,
 			Status:        "pending",
 			CreatedAt:     time.Now(),
 			UpdatedAt:     time.Now(),
@@ -146,16 +146,16 @@ func NewPaymentJobHandlers(
 		// Convert amount to USDC (or appropriate stablecoin)
 		// In a real system, this would use an exchange rate service
 		exchangeRate := 0.085 // Example GHS to USD rate
-		cryptoAmount := payload.Amount * exchangeRate
+		cryptoAmount := payloadData.Amount * exchangeRate
 
 		cryptoTx := database.CryptoTransaction{
 			ID:                    uuid.New(),
-			UserID:                payload.UserID,
-			WalletID:              payload.WalletID,
+			UserID:                payloadData.UserID,
+			WalletID:              payloadData.WalletID,
 			Type:                  "send",
 			Amount:                fmt.Sprintf("%.2f", cryptoAmount),
 			TokenSymbol:           "USDC",
-			RecipientAddress:      payload.RecipientAddress,
+			RecipientAddress:      payloadData.RecipientAddress,
 			Status:                "created",
 			InternationalPaymentID: payment.ID,
 			CreatedAt:             time.Now(),
@@ -176,8 +176,8 @@ func NewPaymentJobHandlers(
 		// 7. Queue job to send the blockchain transaction
 		sendTxPayload := SendTransactionPayload{
 			TransactionID:         cryptoTx.ID,
-			FromWalletID:          payload.WalletID,
-			ToAddress:             payload.RecipientAddress,
+			FromWalletID:          payloadData.WalletID,
+			ToAddress:             payloadData.RecipientAddress,
 			Amount:                cryptoTx.Amount,
 			TokenSymbol:           cryptoTx.TokenSymbol,
 			InternationalPaymentID: payment.ID,
@@ -192,12 +192,12 @@ func NewPaymentJobHandlers(
 
 		// 8. Generate compliance report asynchronously
 		reportPayload := ComplianceReportPayload{
-			UserID:          payload.UserID,
+			UserID:          payloadData.UserID,
 			TransactionID:   payment.ID,
 			TransactionType: "international_payment",
-			Amount:          payload.Amount,
-			Currency:        payload.Currency,
-			RecipientInfo:   payload.RecipientAddress,
+			Amount:          payloadData.Amount,
+			Currency:        payloadData.Currency,
+			RecipientInfo:   payloadData.RecipientAddress,
 		}
 
 		_, err = queue.EnqueueJob(JobTypeGenerateComplianceReport, reportPayload)
@@ -206,29 +206,32 @@ func NewPaymentJobHandlers(
 			log.Printf("Failed to queue compliance report job: %v", err)
 		}
 
-		return PaymentResult{
+		// Create result to log but we don't return it directly
+		result := PaymentResult{
 			PaymentID:   payment.ID,
 			Status:      "processing",
 			BankTxID:    bankTx.ID,
 			CryptoTxID:  cryptoTx.ID,
 			CompletedAt: time.Now(),
-		}, nil
+		}
+		log.Printf("Payment processing successful: %+v", result)
+		return result, nil
 	}
 
 	// Handler for generating compliance reports
 	handlers[JobTypeGenerateComplianceReport] = func(ctx context.Context, job Job) (interface{}, error) {
-		var payload ComplianceReportPayload
-		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		var payloadData ComplianceReportPayload
+		if err := json.Unmarshal(job.Payload, &payloadData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal compliance report payload: %w", err)
 		}
 
-		log.Printf("Generating compliance report for transaction ID: %s", payload.TransactionID)
+		log.Printf("Generating compliance report for transaction ID: %s", payloadData.TransactionID)
 
 		// Generate compliance report
 		reportJSON, err := complianceService.GenerateComplianceReport(
-			payload.UserID,
-			payload.TransactionID,
-			payload.TransactionType,
+			payloadData.UserID,
+			payloadData.TransactionID,
+			payloadData.TransactionType,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate compliance report: %w", err)
@@ -237,9 +240,9 @@ func NewPaymentJobHandlers(
 		// Store report in database
 		report := database.ComplianceReport{
 			ID:                    uuid.New(),
-			UserID:                payload.UserID,
-			InternationalPaymentID: payload.TransactionID,
-			ReportType:            payload.TransactionType,
+			UserID:                payloadData.UserID,
+			InternationalPaymentID: payloadData.TransactionID,
+			ReportType:            payloadData.TransactionType,
 			ReportData:            reportJSON,
 			Status:                "generated",
 			CreatedAt:             time.Now(),
@@ -250,10 +253,8 @@ func NewPaymentJobHandlers(
 			return nil, fmt.Errorf("failed to store compliance report: %w", err)
 		}
 
-		return map[string]interface{}{
-			"report_id": report.ID,
-			"status":    "completed",
-		}, nil
+		log.Printf("Compliance report generated successfully: %s", report.ID)
+		return report.ID, nil
 	}
 
 	return handlers

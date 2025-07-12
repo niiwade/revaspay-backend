@@ -9,8 +9,11 @@ require (
 	github.com/ethereum/go-ethereum v1.16.1
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.10.1
+	github.com/go-co-op/gocron v1.37.0
 	github.com/go-gormigrate/gormigrate/v2 v2.1.4
+	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/uuid v1.6.0
+	github.com/gosimple/slug v1.15.0
 	github.com/joho/godotenv v1.5.1
 	github.com/pquerna/otp v1.5.0
 	github.com/stretchr/testify v1.10.0
@@ -29,6 +32,7 @@ require (
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.0 // indirect
@@ -37,6 +41,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/deckarep/golang-set/v2 v2.6.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
@@ -47,6 +52,7 @@ require (
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gosimple/unidecode v1.0.1 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
@@ -61,6 +67,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
@@ -68,6 +75,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
+	go.uber.org/atomic v1.9.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect

@@ -146,7 +146,7 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 	// This protects against cross-site request forgery attacks
 	router.Use(middleware.CSRFMiddleware(csrfConfig))
 	// Load configuration
-	_ = config.New() // Load config but we don't need it directly
+	_ = config.LoadConfig() // Load config but we don't need it directly
 	
 	// Create crypto service
 	baseService := crypto.NewBaseService(db)
@@ -157,13 +157,21 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 	sessionHandler := handlers.NewSessionHandler(db)
 	enhancedSessionHandler := handlers.NewEnhancedSessionHandler(db)
 	kycHandler := handlers.NewKYCHandler(db)
-	webhookHandler := handlers.NewWebhookHandler(db, baseService, jobQueue)
+	walletHandler := handlers.NewWalletHandler(db)
+	adminWalletHandler := handlers.NewAdminWalletHandler(db)
+	webhookHandler := handlers.NewWebhookHandler(db, baseService, nil)
 	mfaHandler := handlers.NewMFAHandler(db, auditLogger)
 	profileHandler := handlers.NewProfileHandler(db)
 	securityQuestionHandler := handlers.NewSecurityQuestionHandler(db)
 	passwordHandler := handlers.NewPasswordHandler(db)
 	recoveryHandler := handlers.NewRecoveryHandler(db)
 	// sessionSecurityHandler already initialized above
+	
+	// Create Didit KYC handler
+	diditKYCHandler, err := handlers.NewDiditKYCHandler(db)
+	if err != nil {
+		panic(err)
+	}
 	
 	// Configure MFA with default settings
 	// MFA is already initialized with default config in the handler constructor
@@ -212,7 +220,8 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 			})
 			
 			// KYC verification webhooks
-			webhooks.POST("/kyc/smile", kycHandler.HandleSmileIdentityWebhook)
+			// Removed Smile Identity webhook route
+			webhooks.POST("/kyc/didit", kycHandler.HandleDiditWebhook)
 			
 			// Blockchain transaction webhooks
 			webhooks.POST("/blockchain/transaction", webhookHandler.BlockchainTransactionWebhook)
@@ -265,8 +274,18 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 			// KYC routes
 			kycRoutes := protected.Group("/kyc")
 			{
+				// Legacy Smile Identity KYC routes
 				kycRoutes.GET("/status", kycHandler.GetKYCStatus)
 				kycRoutes.POST("/submit", kycHandler.SubmitKYC)
+				
+				// Didit KYC routes
+				diditRoutes := kycRoutes.Group("/didit")
+				{
+					diditRoutes.GET("/status", diditKYCHandler.GetKYCStatus)
+					diditRoutes.POST("/initiate", diditKYCHandler.InitiateKYCVerification)
+					diditRoutes.POST("/:id/upload", diditKYCHandler.UploadDocument)
+					diditRoutes.GET("/verifications", diditKYCHandler.GetUserVerifications)
+				}
 			}
 			
 			// Wallet routes - will be implemented later
@@ -279,9 +298,16 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 			protected.PUT("/wallet/settings", func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"message": "Update wallet settings endpoint"})
 			})
-			protected.GET("/wallet/balance", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{"message": "Wallet balance endpoint"})
-			})
+			// Wallet routes
+			wallet := protected.Group("/wallet")
+			{
+				wallet.GET("/", walletHandler.GetWallets)
+				wallet.POST("/", walletHandler.CreateWallet)
+				wallet.GET("/:id", walletHandler.GetWallet)
+				wallet.GET("/:id/transactions", walletHandler.GetTransactionHistory)
+				wallet.GET("/auto-withdraw", walletHandler.GetAutoWithdrawConfig)
+				wallet.PUT("/auto-withdraw", walletHandler.UpdateAutoWithdrawConfig)
+			}
 			
 			// Banking routes for Ghanaian bank integration
 			banking := protected.Group("/banking")
@@ -417,7 +443,19 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, jobQueue *queue.Queue) {
 			admin.PUT("/kyc/:id/reject", kycHandler.RejectKYC)
 			admin.PUT("/kyc/status", kycHandler.UpdateKYCStatus)
 			
-			// Admin wallet management - will be implemented later
+			// Admin Didit KYC management
+			admin.GET("/kyc/didit/pending", diditKYCHandler.GetPendingVerifications)
+			admin.GET("/kyc/didit/:id", diditKYCHandler.GetVerificationByID)
+			admin.PUT("/kyc/didit/status", diditKYCHandler.UpdateVerificationStatus)
+			
+			// Admin wallet management
+			admin.GET("/wallets", adminWalletHandler.GetAllWallets)
+			admin.GET("/users/:user_id/wallets", adminWalletHandler.GetUserWallets)
+			admin.GET("/wallets/:id/transactions", adminWalletHandler.GetWalletTransactions)
+			admin.POST("/wallets/:id/adjust", adminWalletHandler.AdjustWalletBalance)
+			admin.GET("/auto-withdraw-configs", adminWalletHandler.GetAllAutoWithdrawConfigs)
+			
+			// Admin withdrawals management
 			admin.GET("/withdrawals", func(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"message": "Admin get all withdrawals endpoint"})
 			})

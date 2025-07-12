@@ -44,9 +44,9 @@ type KYCSubmission struct {
 
 // KYCHandler handles KYC verification related requests
 type KYCHandler struct {
-	DB             *gorm.DB
-	SmileIDService *kyc.SmileIdentityService
-	UploadsDir     string
+	DB          *gorm.DB
+	DiditService *kyc.DiditService
+	UploadsDir  string
 }
 
 // NewKYCHandler creates a new KYC handler
@@ -55,10 +55,17 @@ func NewKYCHandler(db *gorm.DB) *KYCHandler {
 	uploadsDir := filepath.Join("uploads", "kyc")
 	os.MkdirAll(uploadsDir, 0755)
 
+	// Create Didit service
+	diditService, err := kyc.NewDiditService(db)
+	if err != nil {
+		// Log the error but continue - service will handle errors gracefully
+		fmt.Printf("Error initializing Didit service: %v\n", err)
+	}
+
 	return &KYCHandler{
-		DB:             db,
-		SmileIDService: kyc.NewSmileIdentityService(),
-		UploadsDir:     uploadsDir,
+		DB:          db,
+		DiditService: diditService,
+		UploadsDir:  uploadsDir,
 	}
 }
 
@@ -271,15 +278,15 @@ func (h *KYCHandler) SubmitKYC(c *gin.Context) {
 		h.DB.Create(&kyc)
 	}
 
-	// Submit to Smile Identity for verification (in a production environment, this would be done asynchronously)
+	// Submit to Didit for verification (in a production environment, this would be done asynchronously)
 	go func() {
 		// This would be handled by a background job in production
-		// In a real implementation, we would call the Smile Identity service
+		// In a real implementation, we would call the Didit service
 		// For now, we'll just log it
 		fmt.Printf("Would submit KYC verification for user %s at %s\n", userID, time.Now().Format(time.RFC3339))
 		
-		// Note: The SmileIdentity service integration would need to be updated
-		// to match the actual KYC model fields
+		// Note: The Didit service integration is used in the KYC verification job
+		// to process the verification asynchronously
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -441,77 +448,38 @@ func (h *KYCHandler) handleKYCApproval(kyc database.KYC) {
 	fmt.Printf("KYC approved for user %s at %s\n", kyc.UserID, time.Now().Format(time.RFC3339))
 }
 
-// HandleSmileIdentityWebhook processes callbacks from Smile Identity
-func (h *KYCHandler) HandleSmileIdentityWebhook(c *gin.Context) {
-	// Parse webhook payload
-	var webhook kyc.SmileIdentityWebhookPayload
-	if err := c.ShouldBindJSON(&webhook); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook payload"})
+// HandleDiditWebhook processes callbacks from Didit
+func (h *KYCHandler) HandleDiditWebhook(c *gin.Context) {
+	// Check if Didit service is initialized
+	if h.DiditService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Didit service not initialized"})
 		return
 	}
 
-	// Verify webhook signature (in a real application)
-	// This would validate that the webhook is actually from Smile Identity
-	// using a shared secret or digital signature
-
-	// Find the KYC record by user ID (since we don't have smile_job_id field)
-	// In a real implementation, you would need a way to map webhook callbacks to KYC records
-	// For now, we'll just use a placeholder query that will likely not find anything
-	var kycRecord database.KYC
-	result := h.DB.Where("id = ?", uuid.New()).First(&kycRecord)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "KYC record not found for job ID"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch KYC record"})
-		}
+	// Get signature from header
+	signature := c.GetHeader("X-Didit-Signature")
+	if signature == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing webhook signature"})
 		return
 	}
 
-	// Get previous status for history
-	previousStatus := kycRecord.Status
-
-	// Update KYC record with webhook data
-	// Note: Since the KYC model doesn't have Smile Identity fields, 
-	// we'll just update the status if needed
-	updates := database.KYC{}
-
-	// Update status based on verification result
-	if webhook.JobSuccess && webhook.ResultCode == "1000" {
-		// Smile Identity verification passed
-		// In a production system, you might want to keep it as pending for manual review
-		// or automatically approve based on confidence scores and matching flags
-
-		// For this implementation, we'll keep it as pending for manual review
-		// updates.Status = string(database.KYCStatusApproved)
-	} else if !webhook.JobSuccess || webhook.ResultCode != "1000" {
-		// Smile Identity verification failed
-		// We'll keep it as pending but update the failure reason
-		// Since we don't have a Notes field, we'll just log it
-		fmt.Printf("Smile Identity verification failed: %s\n", webhook.ResultText)
+	// Read request body
+	payload, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
 	}
 
-	// Update the KYC record
-	h.DB.Model(&kycRecord).Updates(updates)
-
-	// Create KYC history record for audit trail if status changed
-	if kycRecord.Status != previousStatus {
-		kycHistory := database.KYCHistory{
-			KYCID:          kycRecord.ID,
-			PreviousStatus: database.KYCStatus(previousStatus),
-			NewStatus:      database.KYCStatus(kycRecord.Status),
-			Comment:        fmt.Sprintf("Status updated by Smile Identity webhook: %s", webhook.ResultText),
-			ChangedBy:      uuid.Nil, // System change
-			CreatedAt:      time.Now(),
-		}
-
-		h.DB.Create(&kycHistory)
+	// Process webhook using Didit service
+	err = h.DiditService.ProcessWebhook(payload, signature)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to process webhook: %v", err)})
+		return
 	}
 
 	// Return success response
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Webhook processed successfully",
-		"job_id":  webhook.JobID,
 	})
 }
 
@@ -737,5 +705,11 @@ func RegisterKYCRoutes(router *gin.RouterGroup, db *gorm.DB) {
 			adminRoutes.PUT("/:id/reject", handler.RejectKYC)
 			adminRoutes.PUT("/status", handler.UpdateKYCStatus)
 		}
+	}
+
+	// Webhook routes
+	webhookRoutes := router.Group("/webhooks")
+	{
+		webhookRoutes.POST("/didit", handler.HandleDiditWebhook)
 	}
 }

@@ -9,11 +9,11 @@ import (
 func InitMoMoService(db *gorm.DB, cfg *config.Config) *MoMoService {
 	return NewMoMoService(
 		db,
-		cfg.MoMoSubscriptionKey,
-		cfg.MoMoCollectionAPIUser,
-		cfg.MoMoCollectionAPIKey,
-		cfg.MoMoDisbursementAPIUser,
-		cfg.MoMoDisbursementAPIKey,
-		cfg.MoMoUseSandbox,
+		cfg.MoMo.SubscriptionKey,
+		cfg.MoMo.CollectionAPIUser,
+		cfg.MoMo.CollectionAPIKey,
+		cfg.MoMo.DisbursementAPIUser,
+		cfg.MoMo.DisbursementAPIKey,
+		cfg.MoMo.UseSandbox,
 	)
 }

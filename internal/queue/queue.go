@@ -59,6 +59,17 @@ type Queue struct {
 	processing bool
 }
 
+// QueueInterface defines the interface for job queue operations
+type QueueInterface interface {
+	// Core queue operations
+	RegisterHandler(jobType JobType, handler JobHandler)
+	Enqueue(job *Job) error
+	Dequeue(queueName string) (*RedisJob, error)
+	Complete(queueName string, jobID string, result interface{}) error
+	Fail(queueName string, jobID string, err error) error
+	Retry(queueName string, jobID string, delay int) error
+}
+
 // JobHandler is a function that processes a job
 type JobHandler func(ctx context.Context, job Job) (interface{}, error)
 
